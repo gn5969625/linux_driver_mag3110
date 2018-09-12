@@ -46,6 +46,8 @@ static int i2c_mag3110_read_len(struct i2c_client *client,unsigned char reg_addr
                 {client->addr,0,1,&txbuf},
                 {client->addr,1,len,buf}
         };
+        msg[0].scl_rate = 100*1000;
+        msg[1].scl_rate = 100*1000;
         ret = i2c_transfer(client->adapter,msg,2);
         if(ret < 0) {
                 printk("i2c_transfer read len error\n");
@@ -57,9 +59,11 @@ static int i2c_mag3110_read_len(struct i2c_client *client,unsigned char reg_addr
 //static mag3110_data akm_data;
 static void get_mag3110_raw_data(mag3110_data *data,unsigned char raw_data[]) {
      int ret;
+     
      do {
        ret = i2c_smbus_read_byte_data(data->client,MAG3110_STATUS);
      }while(!(ret & MAG3110_STATUS_DRDY ));
+     
      i2c_mag3110_read_len(data->client,MAG3110_OUT_X,6,raw_data);
 }
 
@@ -67,18 +71,20 @@ static ssize_t mag3110_data_show(struct device *dev,struct device_attribute *att
 {
     unsigned char raw_buf[6];
     mag3110_data *data = dev_get_drvdata(dev);
+    set_mag3110_mode(data,0x02);
     get_mag3110_raw_data(data,raw_buf);
     input_report_abs(data->input_dev, ABS_X, (raw_buf[0]<<8) | raw_buf[1]);
     input_report_abs(data->input_dev, ABS_Y, (raw_buf[2]<<8) | raw_buf[3]);
     input_report_abs(data->input_dev, ABS_Z, (raw_buf[4]<<8) | raw_buf[5]);
     input_sync(data->input_dev);
-    return sprintf(buf,"x=%x,y=%x,z=%x\n",(raw_buf[0]<<8) | raw_buf[1],(raw_buf[2]<<8) | raw_buf[3], (raw_buf[4]<<8) | raw_buf[5]);
+    return sprintf(buf,"x=%d,y=%d,z=%d\n",(raw_buf[0]<<8) | raw_buf[1],(raw_buf[2]<<8) | raw_buf[3], (raw_buf[4]<<8) | raw_buf[5]);
 }
 static DEVICE_ATTR(mag3110_data, 0644 , mag3110_data_show, NULL);
 
 static ssize_t mag3110_mode_show(struct device *dev,struct device_attribute *attr, char *buf)
 {
         mag3110_data *data = dev_get_drvdata(dev);
+        data->mode = i2c_smbus_read_byte_data(data->client,MAG3110_CTRL_REG1); 
 	return sprintf(buf ,"mode = %x\n",data->mode);
 }
 
@@ -152,7 +158,7 @@ static int mag3110_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
                 return -ENODEV;
 	dev_info(&i2c->dev, "chip found, driver version " DRV_VERSION "\n");
 
-        data = kzalloc(sizeof(mag3110_data),GFP_KERNEL);
+        data = kzalloc(sizeof(*data),GFP_KERNEL);
 	//mag3110_client = i2c;
         data->client = i2c;
         mutex_init(&data->lock);
@@ -170,6 +176,7 @@ static int mag3110_remove(struct i2c_client *i2c) {
         mutex_destroy(&data->lock);
         kfree(data);
 	sysfs_remove_group(&i2c->dev.kobj, &mag3110_attr_group);
+        pr_info("%s,mag3110_driver bye bye~\n",__func__);
 	return 0;
 }
 /*
